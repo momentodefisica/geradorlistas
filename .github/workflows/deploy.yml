@@ -42,7 +42,8 @@ jobs:
             texlive-latex-extra \
             texlive-fonts-recommended \
             texlive-fonts-extra \
-            texlive-lang-portuguese
+            texlive-lang-portuguese \
+            tex-gyre
 
       - name: Gerar index.json
         run: python banco_questao/scripts/gerar_index.py
