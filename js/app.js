@@ -98,4 +98,55 @@ function atualizarSelecionados() {
     : "Gerar lista (em breve)";
 }
 
+// --- Geração da lista ---
+
+async function gerarLista() {
+  const btn = document.getElementById("btn-gerar");
+  const temas = [...estado.selecionados];
+  if (temas.length === 0) return;
+
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Gerando...";
+
+  try {
+    if (temas.length === 1) {
+      // Um só tema: baixa direto
+      const url = `pdfs/${temas[0]}.pdf`;
+      window.open(url, "_blank");
+    } else {
+      // Vários temas: baixa cada um e junta em um único PDF
+      const { PDFDocument } = PDFLib;
+      const merged = await PDFDocument.create();
+
+      for (const tema of temas) {
+        const url = `pdfs/${tema}.pdf`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Não consegui baixar "${tema}"`);
+        const bytes = await resp.arrayBuffer();
+        const doc = await PDFDocument.load(bytes);
+        const paginas = await merged.copyPages(doc, doc.getPageIndices());
+        paginas.forEach((p) => merged.addPage(p));
+      }
+
+      const bytes = await merged.save();
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "lista.pdf";
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+  } catch (e) {
+    alert("Erro ao gerar a lista: " + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+
+// --- Inicialização ---
+
+document.getElementById("btn-gerar").addEventListener("click", gerarLista);
 iniciar();
