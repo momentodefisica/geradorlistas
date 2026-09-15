@@ -1,0 +1,106 @@
+:root {
+  --cor-primaria: #2563eb;
+  --cor-borda: #e5e7eb;
+  --cor-texto: #1f2937;
+  --cor-fundo-card: #f9fafb;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  padding: 0 1rem;
+  color: var(--cor-texto);
+  line-height: 1.5;
+}
+
+header {
+  max-width: 960px;
+  margin: 2rem auto 1rem;
+}
+
+header h1 { margin: 0 0 0.25rem; }
+header p  { margin: 0; color: #6b7280; }
+
+main {
+  max-width: 960px;
+  margin: 0 auto 4rem;
+}
+
+.disciplina {
+  margin-top: 2rem;
+  padding: 1rem;
+  background: var(--cor-fundo-card);
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+}
+
+.disciplina h3 {
+  margin: 0 0 0.75rem;
+  text-transform: capitalize;
+}
+
+.temas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.5rem;
+}
+
+.tema {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border: 1px solid var(--cor-borda);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.tema:hover { border-color: var(--cor-primaria); }
+
+.tema input { margin: 0; }
+
+.tema .contagem {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+#selecionados {
+  margin-top: 2rem;
+  padding: 1rem;
+  border: 2px dashed var(--cor-primaria);
+  border-radius: 8px;
+}
+
+#selecionados ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#selecionados li {
+  background: var(--cor-primaria);
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+}
+
+button {
+  background: var(--cor-primaria);
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -1,15 +1,31 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meu Site no GitHub Pages</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 50px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerador de Listas — ENEM</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <h1>Olá, Mundo!</h1>
-    <p>Meu gerador de listas automático estará aqui em breve.</p>
+  <header>
+    <h1>Gerador de Listas</h1>
+    <p>Escolha os temas e gere sua lista de exercícios</p>
+  </header>
+
+  <main>
+    <section id="carregando">Carregando temas…</section>
+
+    <section id="menu" hidden>
+      <div id="disciplinas"></div>
+    </section>
+
+    <section id="selecionados" hidden>
+      <h2>Temas selecionados</h2>
+      <ul id="lista-selecionados"></ul>
+      <button id="btn-gerar" disabled>Gerar lista (em breve)</button>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
 </body>
 </html>
