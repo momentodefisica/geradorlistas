@@ -33,8 +33,22 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Instalar LaTeX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-base \
+            texlive-latex-recommended \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-fonts-extra \
+            texlive-lang-portuguese
+
       - name: Gerar index.json
         run: python banco_questao/scripts/gerar_index.py
+
+      - name: Compilar PDFs por tema
+        run: python build_pdfs.py
 
       - name: Montar pasta _site
         run: |
@@ -43,6 +57,7 @@ jobs:
           cp -r css _site/
           cp -r js _site/
           cp banco_questao/index.json _site/
+          cp -r pdfs _site/
 
       - name: Upload do artefato
         uses: actions/upload-pages-artifact@v3
