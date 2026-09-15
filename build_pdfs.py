@@ -62,16 +62,26 @@ def main():
             f"_main_{nome}.tex",
         ]
         print(f"→ {tema} ({len(arquivos)} questões)")
-        resultado = subprocess.run(cmd, cwd=BANCO, capture_output=True, text=True)
-
+        resultado = subprocess.run(
+            cmd, cwd=BANCO, capture_output=True,
+            encoding="utf-8", errors="replace",
+        )
+        
         pdf_gerado = BANCO / f"_main_{nome}.pdf"
+        
         if resultado.returncode != 0 or not pdf_gerado.exists():
             print(f"  ❌ falhou")
-            for linha in resultado.stdout.splitlines()[-25:]:
+            # Mostra apenas as linhas úteis: erros "!" e o contexto
+            linhas = resultado.stdout.splitlines()
+            relevantes = [l for l in linhas if l.startswith("!") or "Error" in l or ".tex:" in l]
+            # Se não achou nada óbvio, mostra as últimas 20 linhas
+            if not relevantes:
+                relevantes = linhas[-20:]
+            for linha in relevantes[:15]:
                 print(f"     {linha}")
             falhas.append(tema)
             continue
-
+            
         shutil.move(str(pdf_gerado), str(SAIDA / f"{nome}.pdf"))
         print(f"  ✅ pdfs/{nome}.pdf")
 
