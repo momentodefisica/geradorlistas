@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Compila um PDF por tema a partir das questões em banco_questao/.
-Usa o estilo_questoes.sty do próprio banco.
+Compila um PDF por par (tema, subtema) a partir das questões em banco_questao/.
+Gera também um disponiveis.json com o mapa de PDFs disponíveis.
 """
 
 import json
@@ -14,6 +14,28 @@ from collections import defaultdict
 BANCO = Path("banco_questao")
 SAIDA = Path("pdfs")
 
+ACENTOS = str.maketrans({
+    "á":"a","à":"a","ã":"a","â":"a","ä":"a",
+    "é":"e","è":"e","ê":"e","ë":"e",
+    "í":"i","ì":"i","î":"i","ï":"i",
+    "ó":"o","ò":"o","õ":"o","ô":"o","ö":"o",
+    "ú":"u","ù":"u","û":"u","ü":"u",
+    "ç":"c",
+    "Á":"A","À":"A","Ã":"A","Â":"A","Ä":"A",
+    "É":"E","È":"E","Ê":"E","Ë":"E",
+    "Í":"I","Ì":"I","Î":"I","Ï":"I",
+    "Ó":"O","Ò":"O","Õ":"O","Ô":"O","Ö":"O",
+    "Ú":"U","Ù":"U","Û":"U","Ü":"U",
+    "Ç":"C",
+})
+
+
+def sanitizar(nome: str) -> str:
+    """Nome seguro para arquivo: sem acento, sem espaço, sem barra."""
+    nome = nome.translate(ACENTOS)
+    nome = nome.replace("/", "_").replace(" ", "_")
+    return nome
+
 
 def main():
     SAIDA.mkdir(exist_ok=True)
@@ -25,20 +47,29 @@ def main():
 
     index = json.loads(index_path.read_text(encoding="utf-8"))
 
-    # Agrupa questões por tema
-    por_tema = defaultdict(list)
-    for q in index["questoes"]:
-        for tema in q["temas"]:
-            por_tema[tema].append(q["arquivo"])
+    # Agrupa questões por (tema, subtema)
+    por_chave = defaultdict(list)
 
-    print(f"Compilando {len(por_tema)} temas...\n")
+    for q in index["questoes"]:
+        temas = q.get("temas") or [q.get("tema", "")]
+        subtemas_raw = q.get("subtema", "") or ""
+        subtemas = [s.strip() for s in subtemas_raw.split("/") if s.strip()]
+        if not subtemas:
+            subtemas = ["_sem_subtema"]
+
+        for t in temas:
+            for s in subtemas:
+                por_chave[(t, s)].append(q["arquivo"])
+
+    print(f"Compilando {len(por_chave)} pares (tema, subtema)...\n")
 
     falhas = []
-    for tema in sorted(por_tema):
-        arquivos = por_tema[tema]
-        nome = tema.replace("/", "_").replace(" ", "_")
+    disponiveis = {"pdfs": []}
 
-        # Monta um main.tex com todas as questões do tema
+    for (tema, subtema) in sorted(por_chave):
+        arquivos = por_chave[(tema, subtema)]
+        nome_pdf = f"{sanitizar(tema)}__{sanitizar(subtema)}"
+
         linhas = [
             "\\documentclass[10pt,a4paper]{article}",
             "\\usepackage{estilo_questoes}",
@@ -49,54 +80,61 @@ def main():
             linhas.append(f"\\input{{{arq_limpo}}}")
         linhas.append("\\end{document}")
 
-        main_file = BANCO / f"_main_{nome}.tex"
+        main_file = BANCO / f"_main_{nome_pdf}.tex"
         main_file.write_text("\n".join(linhas), encoding="utf-8")
 
-        # Compila de dentro da pasta do banco, para que os caminhos
-        # relativos (questoes/..., imagens/...) resolvam corretamente
         cmd = [
             "pdflatex",
             "-interaction=nonstopmode",
             "-halt-on-error",
             "-file-line-error",
-            f"_main_{nome}.tex",
+            f"_main_{nome_pdf}.tex",
         ]
-        print(f"→ {tema} ({len(arquivos)} questões)")
+        print(f"→ {tema} / {subtema} ({len(arquivos)})")
         resultado = subprocess.run(
             cmd, cwd=BANCO, capture_output=True,
             encoding="utf-8", errors="replace",
         )
-        
-        pdf_gerado = BANCO / f"_main_{nome}.pdf"
-        
+
+        pdf_gerado = BANCO / f"_main_{nome_pdf}.pdf"
         if resultado.returncode != 0 or not pdf_gerado.exists():
             print(f"  ❌ falhou")
-            # Mostra apenas as linhas úteis: erros "!" e o contexto
-            linhas = resultado.stdout.splitlines()
-            relevantes = [l for l in linhas if l.startswith("!") or "Error" in l or ".tex:" in l]
-            # Se não achou nada óbvio, mostra as últimas 20 linhas
+            linhas_log = resultado.stdout.splitlines()
+            relevantes = [l for l in linhas_log if l.startswith("!") or "Error" in l or ".tex:" in l]
             if not relevantes:
-                relevantes = linhas[-20:]
-            for linha in relevantes[:15]:
+                relevantes = linhas_log[-15:]
+            for linha in relevantes[:10]:
                 print(f"     {linha}")
-            falhas.append(tema)
+            falhas.append((tema, subtema))
             continue
-            
-        shutil.move(str(pdf_gerado), str(SAIDA / f"{nome}.pdf"))
-        print(f"  ✅ pdfs/{nome}.pdf")
 
-    # Limpa arquivos temporários do banco
-    for padrao in ("_main_*",):
-        for f in BANCO.glob(padrao):
-            try:
-                f.unlink()
-            except Exception:
-                pass
+        shutil.move(str(pdf_gerado), str(SAIDA / f"{nome_pdf}.pdf"))
+        print(f"  ✅ pdfs/{nome_pdf}.pdf")
 
-    total_ok = len(por_tema) - len(falhas)
-    print(f"\nResumo: {total_ok}/{len(por_tema)} PDFs gerados com sucesso")
+        disponiveis["pdfs"].append({
+            "tema": tema,
+            "subtema": subtema,
+            "arquivo": f"{nome_pdf}.pdf",
+            "total": len(arquivos),
+        })
+
+    # Limpa temporários
+    for f in BANCO.glob("_main_*"):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+    # Salva o índice de disponíveis
+    (SAIDA / "disponiveis.json").write_text(
+        json.dumps(disponiveis, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    total_ok = len(por_chave) - len(falhas)
+    print(f"\nResumo: {total_ok}/{len(por_chave)} PDFs gerados")
     if falhas:
-        print(f"Temas com erro: {falhas}")
+        print(f"Primeiras falhas: {falhas[:10]}")
 
 
 if __name__ == "__main__":
