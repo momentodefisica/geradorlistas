@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Compila um PDF por par (tema, subtema) a partir das questões em banco_questao/.
-Gera também um disponiveis.json com o mapa de PDFs disponíveis.
+Compila um PDF por par (tema, subtema) presente na taxonomia.
+Só compila o que está na taxonomia — o que não está, é ignorado.
 """
 
 import json
@@ -31,44 +31,61 @@ ACENTOS = str.maketrans({
 
 
 def sanitizar(nome: str) -> str:
-    """Nome seguro para arquivo: sem acento, sem espaço, sem barra."""
-    nome = nome.translate(ACENTOS)
-    nome = nome.replace("/", "_").replace(" ", "_")
-    return nome
+    return nome.translate(ACENTOS).replace("/", "_").replace(" ", "_")
+
+
+def coletar_arquivos(tema, subtema, questoes):
+    """Retorna os caminhos dos .tex que casam com (tema, subtema)."""
+    arquivos = []
+    for q in questoes:
+        temas_q = q.get("temas") or [q.get("tema", "")]
+        subs_raw = q.get("subtema", "") or ""
+        subs_q = [s.strip() for s in subs_raw.split("/") if s.strip()]
+        if tema in temas_q and subtema in subs_q:
+            arquivos.append(q["arquivo"])
+    return arquivos
 
 
 def main():
     SAIDA.mkdir(exist_ok=True)
 
+    tax_path = BANCO / "taxonomia.json"
     index_path = BANCO / "index.json"
+
+    if not tax_path.exists():
+        print(f"ERRO: {tax_path} não existe")
+        sys.exit(1)
     if not index_path.exists():
         print(f"ERRO: {index_path} não existe")
         sys.exit(1)
 
+    tax = json.loads(tax_path.read_text(encoding="utf-8"))
     index = json.loads(index_path.read_text(encoding="utf-8"))
+    questoes = index["questoes"]
 
-    # Agrupa questões por (tema, subtema)
-    por_chave = defaultdict(list)
+    # Achata a taxonomia em lista de (disciplina, tema, subtema, nome_bonito)
+    alvos = []
+    for disc, info_disc in tax.items():
+        for tema, info_tema in info_disc.get("temas", {}).items():
+            for sub, nome_sub in info_tema.get("subtemas", {}).items():
+                alvos.append((disc, tema, sub, nome_sub))
 
-    for q in index["questoes"]:
-        temas = q.get("temas") or [q.get("tema", "")]
-        subtemas_raw = q.get("subtema", "") or ""
-        subtemas = [s.strip() for s in subtemas_raw.split("/") if s.strip()]
-        if not subtemas:
-            subtemas = ["_sem_subtema"]
+    print(f"Taxonomia define {len(alvos)} pares (tema, subtema) para compilar.\n")
 
-        for t in temas:
-            for s in subtemas:
-                por_chave[(t, s)].append(q["arquivo"])
-
-    print(f"Compilando {len(por_chave)} pares (tema, subtema)...\n")
-
+    disponiveis = {"pdfs": [], "vazios": []}
     falhas = []
-    disponiveis = {"pdfs": []}
 
-    for (tema, subtema) in sorted(por_chave):
-        arquivos = por_chave[(tema, subtema)]
-        nome_pdf = f"{sanitizar(tema)}__{sanitizar(subtema)}"
+    for disc, tema, sub, nome_bonito in alvos:
+        arquivos = coletar_arquivos(tema, sub, questoes)
+
+        if not arquivos:
+            print(f"→ [{disc}] {tema} / {sub} — 0 questões (pulado)")
+            disponiveis["vazios"].append({
+                "disciplina": disc, "tema": tema, "subtema": sub,
+            })
+            continue
+
+        nome_pdf = f"{sanitizar(tema)}__{sanitizar(sub)}"
 
         linhas = [
             "\\documentclass[10pt,a4paper]{article}",
@@ -76,8 +93,7 @@ def main():
             "\\begin{document}",
         ]
         for arq in arquivos:
-            arq_limpo = arq.replace("\\", "/")
-            linhas.append(f"\\input{{{arq_limpo}}}")
+            linhas.append(f"\\input{{{arq.replace(chr(92), '/')}}}")
         linhas.append("\\end{document}")
 
         main_file = BANCO / f"_main_{nome_pdf}.tex"
@@ -90,7 +106,7 @@ def main():
             "-file-line-error",
             f"_main_{nome_pdf}.tex",
         ]
-        print(f"→ {tema} / {subtema} ({len(arquivos)})")
+        print(f"→ [{disc}] {tema} / {sub} ({len(arquivos)} questões)")
         resultado = subprocess.run(
             cmd, cwd=BANCO, capture_output=True,
             encoding="utf-8", errors="replace",
@@ -105,15 +121,16 @@ def main():
                 relevantes = linhas_log[-15:]
             for linha in relevantes[:10]:
                 print(f"     {linha}")
-            falhas.append((tema, subtema))
+            falhas.append((disc, tema, sub))
             continue
 
         shutil.move(str(pdf_gerado), str(SAIDA / f"{nome_pdf}.pdf"))
         print(f"  ✅ pdfs/{nome_pdf}.pdf")
 
         disponiveis["pdfs"].append({
+            "disciplina": disc,
             "tema": tema,
-            "subtema": subtema,
+            "subtema": sub,
             "arquivo": f"{nome_pdf}.pdf",
             "total": len(arquivos),
         })
@@ -125,16 +142,15 @@ def main():
         except Exception:
             pass
 
-    # Salva o índice de disponíveis
     (SAIDA / "disponiveis.json").write_text(
         json.dumps(disponiveis, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
-    total_ok = len(por_chave) - len(falhas)
-    print(f"\nResumo: {total_ok}/{len(por_chave)} PDFs gerados")
+    total_ok = len(disponiveis["pdfs"])
+    print(f"\nResumo: {total_ok} PDFs gerados, {len(disponiveis['vazios'])} vazios, {len(falhas)} falhas")
     if falhas:
-        print(f"Primeiras falhas: {falhas[:10]}")
+        print(f"Falhas: {falhas[:10]}")
 
 
 if __name__ == "__main__":

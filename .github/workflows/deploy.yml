@@ -58,6 +58,7 @@ jobs:
           cp -r css _site/
           cp -r js _site/
           cp banco_questao/index.json _site/
+          cp banco_questao/taxonomia.json _site/
           cp -r pdfs _site/
 
       - name: Upload do artefato
