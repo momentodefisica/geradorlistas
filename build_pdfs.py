@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Compila um PDF por par (tema, subtema) presente na taxonomia.
-Só compila o que está na taxonomia — o que não está, é ignorado.
+Compila PDFs a partir da taxonomia.
+Suporta três modos por tema:
+  - sem_subtemas: 1 PDF único com todas as questões do tema
+  - transversal: casa por subtema + disciplina, ignorando o tema
+  - normal: casa por tema E subtema exatos
+
+Cada PDF tem cabeçalho com logo, título, subtítulo e rodapé com o autor.
 """
 
 import json
@@ -9,10 +14,12 @@ import subprocess
 import shutil
 import sys
 from pathlib import Path
-from collections import defaultdict
 
 BANCO = Path("banco_questao")
 SAIDA = Path("pdfs")
+
+AUTOR = "Breno D. Anjos - @momentodefisica"
+LOGO = "imagens/logos/MFlogo.jpg"
 
 ACENTOS = str.maketrans({
     "á":"a","à":"a","ã":"a","â":"a","ä":"a",
@@ -34,16 +41,68 @@ def sanitizar(nome: str) -> str:
     return nome.translate(ACENTOS).replace("/", "_").replace(" ", "_")
 
 
-def coletar_arquivos(tema, subtema, questoes):
-    """Retorna os caminhos dos .tex que casam com (tema, subtema)."""
+def coletar_arquivos(tema, subtema, questoes, info_tema=None):
+    """Retorna os .tex que casam com (tema, subtema).
+    Se subtema é None (tema sem_subtemas), pega todas as questões do tema.
+    Se info_tema tem 'transversal', usa a regra especial.
+    """
     arquivos = []
+    info_tema = info_tema or {}
+    transversal = info_tema.get("transversal")
+
     for q in questoes:
         temas_q = q.get("temas") or [q.get("tema", "")]
         subs_raw = q.get("subtema", "") or ""
         subs_q = [s.strip() for s in subs_raw.split("/") if s.strip()]
+
+        # Modo 1: tema sem subtemas
+        if subtema is None:
+            if tema in temas_q:
+                arquivos.append(q["arquivo"])
+            continue
+
+        # Modo 2: tema transversal
+        if transversal:
+            disc_q = q.get("disciplina", "")
+            discs_ok = transversal.get("disciplinas", [])
+            temas_ok = transversal.get("temas", [])
+            if (subtema in subs_q
+                    and disc_q in discs_ok
+                    and any(t in temas_q for t in temas_ok)):
+                arquivos.append(q["arquivo"])
+            continue
+
+        # Modo 3: casamento normal
         if tema in temas_q and subtema in subs_q:
             arquivos.append(q["arquivo"])
+
     return arquivos
+
+
+def montar_main_tex(arquivos, titulo, subtitulo):
+    """Monta o conteúdo do arquivo main.tex com cabeçalho e inputs."""
+    linhas = []
+    linhas.append("\\documentclass[11pt,a4paper]{article}")
+    linhas.append("\\usepackage{estilo_questoes}")
+    linhas.append("")
+    linhas.append(f"\\fancyhead[L]{{\\includegraphics[height=1.3cm]{{{LOGO}}}}}")
+    linhas.append(f"\\fancyfoot[C]{{\\small {AUTOR}}}")
+    linhas.append("")
+    linhas.append("\\fancyhead[C]{%")
+    linhas.append(f"    \\Large\\bfseries {titulo}\\\\[3pt]")
+    linhas.append(f"    \\normalsize\\itshape {subtitulo}")
+    linhas.append("}")
+    linhas.append("")
+    linhas.append("\\begin{document}")
+    linhas.append("")
+    linhas.append("")
+
+    for arq in arquivos:
+        linhas.append(f"\\input{{{arq.replace(chr(92), '/')}}}")
+
+    linhas.append("")
+    linhas.append("\\end{document}")
+    return "\n".join(linhas)
 
 
 def main():
@@ -63,42 +122,50 @@ def main():
     index = json.loads(index_path.read_text(encoding="utf-8"))
     questoes = index["questoes"]
 
-    # Achata a taxonomia em lista de (disciplina, tema, subtema, nome_bonito)
+    # Achata a taxonomia em alvos
+    # Cada alvo: (disc, tema, subtema_ou_None, nome_alvo, info_tema)
     alvos = []
     for disc, info_disc in tax.items():
         for tema, info_tema in info_disc.get("temas", {}).items():
-            for sub, nome_sub in info_tema.get("subtemas", {}).items():
-                alvos.append((disc, tema, sub, nome_sub))
+            if info_tema.get("sem_subtemas"):
+                alvos.append((disc, tema, None, info_tema["nome"], info_tema))
+            else:
+                for sub, nome_sub in info_tema.get("subtemas", {}).items():
+                    alvos.append((disc, tema, sub, nome_sub, info_tema))
 
-    print(f"Taxonomia define {len(alvos)} pares (tema, subtema) para compilar.\n")
+    print(f"Taxonomia define {len(alvos)} alvos para compilar.\n")
 
     disponiveis = {"pdfs": [], "vazios": []}
     falhas = []
 
-    for disc, tema, sub, nome_bonito in alvos:
-        arquivos = coletar_arquivos(tema, sub, questoes)
+    for disc, tema, sub, nome_alvo, info_tema in alvos:
+        arquivos = coletar_arquivos(tema, sub, questoes, info_tema)
+
+        rotulo = tema if sub is None else f"{tema} / {sub}"
 
         if not arquivos:
-            print(f"→ [{disc}] {tema} / {sub} — 0 questões (pulado)")
+            print(f"→ [{disc}] {rotulo} — 0 questões (pulado)")
             disponiveis["vazios"].append({
                 "disciplina": disc, "tema": tema, "subtema": sub,
             })
             continue
 
-        nome_pdf = f"{sanitizar(tema)}__{sanitizar(sub)}"
+        # Nome do arquivo PDF
+        if sub is None:
+            nome_pdf = sanitizar(tema)
+            subtitulo = "Questões do ENEM"
+        else:
+            nome_pdf = f"{sanitizar(tema)}__{sanitizar(sub)}"
+            subtitulo = nome_alvo
 
-        linhas = [
-            "\\documentclass[10pt,a4paper]{article}",
-            "\\usepackage{estilo_questoes}",
-            "\\begin{document}",
-        ]
-        for arq in arquivos:
-            linhas.append(f"\\input{{{arq.replace(chr(92), '/')}}}")
-        linhas.append("\\end{document}")
+        titulo = f"Lista de {info_tema['nome']}"
 
+        # Monta e grava o main.tex
+        conteudo = montar_main_tex(arquivos, titulo, subtitulo)
         main_file = BANCO / f"_main_{nome_pdf}.tex"
-        main_file.write_text("\n".join(linhas), encoding="utf-8")
+        main_file.write_text(conteudo, encoding="utf-8")
 
+        # Compila
         cmd = [
             "pdflatex",
             "-interaction=nonstopmode",
@@ -106,7 +173,7 @@ def main():
             "-file-line-error",
             f"_main_{nome_pdf}.tex",
         ]
-        print(f"→ [{disc}] {tema} / {sub} ({len(arquivos)} questões)")
+        print(f"→ [{disc}] {rotulo} ({len(arquivos)} questões)")
         resultado = subprocess.run(
             cmd, cwd=BANCO, capture_output=True,
             encoding="utf-8", errors="replace",
