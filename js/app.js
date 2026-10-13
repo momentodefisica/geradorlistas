@@ -5,6 +5,8 @@ const estado = {
   pdfsPorChave: {},
 };
 
+const CHAVE_TEMA_INTEIRO = "__todos__";
+
 async function iniciar() {
   try {
     const [r1, r2] = await Promise.all([
@@ -22,7 +24,10 @@ async function iniciar() {
   }
 
   for (const p of estado.disponiveis.pdfs) {
-    estado.pdfsPorChave[`${p.tema}::${p.subtema}`] = p;
+    const chave = p.subtema === null
+      ? `${p.tema}::${CHAVE_TEMA_INTEIRO}`
+      : `${p.tema}::${p.subtema}`;
+    estado.pdfsPorChave[chave] = p;
   }
 
   document.getElementById("carregando").hidden = true;
@@ -45,19 +50,56 @@ function renderizarArvore() {
     blocoDisc.appendChild(h);
 
     for (const [tema, infoTema] of Object.entries(infoDisc.temas || {})) {
-      blocoDisc.appendChild(criarBlocoTema(disc, tema, infoTema));
+      if (infoTema.sem_subtemas) {
+        blocoDisc.appendChild(criarBlocoTemaInteiro(tema, infoTema));
+      } else {
+        blocoDisc.appendChild(criarBlocoTemaComSubtemas(tema, infoTema));
+      }
     }
 
     container.appendChild(blocoDisc);
   }
 }
 
-function criarBlocoTema(disc, tema, infoTema) {
+function criarBlocoTemaInteiro(tema, infoTema) {
+  const chave = `${tema}::${CHAVE_TEMA_INTEIRO}`;
+  const info = estado.pdfsPorChave[chave];
+  const disponivel = !!info;
+
+  const bloco = document.createElement("div");
+  bloco.className = "tema-simples";
+  if (!disponivel) bloco.classList.add("indisponivel");
+
+  const label = document.createElement("label");
+  label.className = "subtema";
+
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.disabled = !disponivel;
+  cb.dataset.chave = chave;
+  cb.addEventListener("change", (e) => {
+    if (e.target.checked) estado.selecionados.add(chave);
+    else estado.selecionados.delete(chave);
+    atualizarSelecionados();
+  });
+
+  const nome = document.createElement("span");
+  nome.textContent = infoTema.nome;
+  nome.style.fontWeight = "600";
+
+  const cnt = document.createElement("span");
+  cnt.className = "contagem";
+  cnt.textContent = disponivel ? info.total : "0";
+
+  label.append(cb, nome, cnt);
+  bloco.appendChild(label);
+  return bloco;
+}
+
+function criarBlocoTemaComSubtemas(tema, infoTema) {
   const bloco = document.createElement("details");
   bloco.className = "tema";
-  bloco.open = false;
 
-  // Cabeçalho do tema
   const summary = document.createElement("summary");
   const checkTema = document.createElement("input");
   checkTema.type = "checkbox";
@@ -92,7 +134,6 @@ function criarBlocoTema(disc, tema, infoTema) {
   summary.append(checkTema, nomeTema, contTema);
   bloco.appendChild(summary);
 
-  // Lista de subtemas
   const lista = document.createElement("div");
   lista.className = "subtemas";
 
@@ -174,15 +215,17 @@ function atualizarSelecionados() {
     for (const s of subs) {
       const chip = document.createElement("span");
       chip.className = "chip";
-      chip.textContent = nomeBonitoSubtema(tema, s);
+      chip.textContent = s === CHAVE_TEMA_INTEIRO
+        ? "lista completa"
+        : nomeBonitoSubtema(tema, s);
       chip.title = "Remover";
       chip.addEventListener("click", () => {
-        estado.selecionados.delete(`${tema}::${s}`);
+        const chave = `${tema}::${s}`;
+        estado.selecionados.delete(chave);
         const cb = document.querySelector(
-          `input[data-chave="${CSS.escape(`${tema}::${s}`)}"]`
+          `input[data-chave="${CSS.escape(chave)}"]`
         );
         if (cb) cb.checked = false;
-        sincronizarCheckTemaPorChave(tema);
         atualizarSelecionados();
       });
       grupo.appendChild(chip);
@@ -191,7 +234,7 @@ function atualizarSelecionados() {
   }
 
   btn.disabled = false;
-  btn.textContent = `Baixar lista (${total} subtema${total > 1 ? "s" : ""})`;
+  btn.textContent = `Baixar lista (${total})`;
 }
 
 function nomeBonitoTema(tema) {
@@ -203,46 +246,22 @@ function nomeBonitoTema(tema) {
 
 function nomeBonitoSubtema(tema, sub) {
   for (const d of Object.values(estado.taxonomia)) {
-    if (d.temas && d.temas[tema] && d.temas[tema].subtemas[sub]) {
+    if (d.temas && d.temas[tema] && d.temas[tema].subtemas
+        && d.temas[tema].subtemas[sub]) {
       return d.temas[tema].subtemas[sub];
     }
   }
   return sub;
 }
 
-function sincronizarCheckTemaPorChave(tema) {
-  // Recalcula o estado do checkbox do tema dono dessa chave
-  const bloco = [...document.querySelectorAll("details.tema")].find((d) => {
-    const cb = d.querySelector(".check-sub");
-    return cb && cb.dataset.chave.startsWith(`${tema}::`);
-  });
-  if (!bloco) return;
-  // Recalcula todos
-  document.querySelectorAll("details.tema").forEach((d) => {
-    const algumSub = d.querySelector(".check-sub");
-    if (!algumSub) return;
-    const chave = algumSub.dataset.chave;
-    const t = chave.split("::")[0];
-    if (t !== tema) return;
-    // Recalcula contagens
-    const subtemas = [...d.querySelectorAll(".check-sub")];
-    const marcados = subtemas.filter((cb) => cb.checked && !cb.disabled);
-    const habilitados = subtemas.filter((cb) => !cb.disabled);
-    const checkTema = d.querySelector(".check-tema");
-    checkTema.checked = habilitados.length > 0 && marcados.length === habilitados.length;
-    checkTema.indeterminate = marcados.length > 0 && marcados.length < habilitados.length;
-  });
-}
-
-// --- Geração do PDF ---
-
 document.getElementById("btn-gerar").addEventListener("click", gerarLista);
 document.getElementById("btn-limpar").addEventListener("click", () => {
   estado.selecionados.clear();
-  document.querySelectorAll(".check-sub, .check-tema").forEach((cb) => {
-    cb.checked = false;
-    cb.indeterminate = false;
-  });
+  document.querySelectorAll(".check-sub, .check-tema, .tema-simples input")
+    .forEach((cb) => {
+      cb.checked = false;
+      cb.indeterminate = false;
+    });
   atualizarSelecionados();
 });
 
